@@ -1,0 +1,229 @@
+{
+  "name": "Prompt Enhancer Flow",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1a2b3c4d-0001-0001-0001-000000000001",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1,
+      "position": [80, 300],
+      "webhookId": "prompt-enhancer-webhook"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are The Decider — an expert prompt analyst.\n\nYour job is to:\n1. Analyze the user's raw input prompt.\n2. Identify its intent, goal, audience, and missing details.\n3. Decide the best structure, tone, format, and role for the enhanced prompt.\n4. Output ONLY a valid JSON object with these exact fields:\n\n{\n  \"intent\": \"<what the user wants>\",\n  \"role\": \"<best expert role for the AI to play>\",\n  \"audience\": \"<who the output is for>\",\n  \"tone\": \"<professional/casual/persuasive/technical>\",\n  \"format\": \"<bullet points/paragraphs/table/code>\",\n  \"length\": \"<short/medium/long>\",\n  \"key_instructions\": [\"instruction1\", \"instruction2\", \"instruction3\"],\n  \"constraints\": [\"avoid X\", \"always Y\"],\n  \"goal\": \"<the perfect end result description>\"\n}\n\nOnly output valid JSON. No extra text. No markdown. No code blocks."
+        }
+      },
+      "id": "1a2b3c4d-0002-0002-0002-000000000002",
+      "name": "The Decider",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [340, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "1a2b3c4d-0003-0003-0003-000000000003",
+      "name": "OpenAI Model (Decider)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [240, 520],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-creds",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "fromInput",
+        "sessionKey": "sessionId"
+      },
+      "id": "1a2b3c4d-0004-0004-0004-000000000004",
+      "name": "Window Buffer Memory (Decider)",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [400, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output;\n\nlet cleaned = raw.trim();\n\n// Remove markdown code blocks if present\ncleaned = cleaned.replace(/```json\\n?/gi, '').replace(/```\\n?/gi, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error('The Decider did not return valid JSON. Raw output: ' + raw);\n}\n\nreturn [{ json: parsed }];"
+      },
+      "id": "1a2b3c4d-0005-0005-0005-000000000005",
+      "name": "Parse Decider JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\n\nconst instructions = Array.isArray(d.key_instructions)\n  ? d.key_instructions.map(i => `- ${i}`).join('\\n')\n  : '- Be specific and clear\\n- Avoid filler content\\n- Use examples where helpful';\n\nconst constraints = Array.isArray(d.constraints)\n  ? d.constraints.map(c => `- ${c}`).join('\\n')\n  : '- Do not add unnecessary filler\\n- Always stay on topic';\n\nconst prompt = `You are The Answerer — a world-class prompt engineer.\n\nUsing the plan below, write a complete, professional, and optimized AI prompt.\n\nPLAN:\n- Intent: ${d.intent || 'Not specified'}\n- Role: ${d.role || 'Expert'}\n- Audience: ${d.audience || 'General'}\n- Tone: ${d.tone || 'Professional'}\n- Format: ${d.format || 'Paragraphs'}\n- Length: ${d.length || 'Medium'}\n- Goal: ${d.goal || 'Deliver the best possible result'}\n\nNow write the full professional prompt using this exact structure:\n\n---\n# ROLE\nYou are a ${d.role || '[expert]'}. You have deep expertise in this area.\n\n# TASK\n[Write a clear 1-3 sentence task based on: ${d.intent || 'the user intent'}]\n\n# CONTEXT\n- Audience: ${d.audience || 'General audience'}\n- Purpose: ${d.intent || 'To accomplish the stated goal'}\n- Background: [Infer relevant background from the intent]\n\n# INSTRUCTIONS\n${instructions}\n\n# OUTPUT FORMAT\n- Format: ${d.format || 'Paragraphs'}\n- Length: ${d.length || 'Medium'}\n- Tone: ${d.tone || 'Professional'}\n\n# CONSTRAINTS\n${constraints}\n\n# GOAL\n${d.goal || 'Deliver a clear, actionable, high-quality result.'}\n---\n\nOutput only the final prompt. No extra commentary.`;\n\nreturn [{ json: { prompt } }];"
+      },
+      "id": "1a2b3c4d-0006-0006-0006-000000000006",
+      "name": "Build Answerer Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "={{ $json.prompt }}"
+        }
+      },
+      "id": "1a2b3c4d-0007-0007-0007-000000000007",
+      "name": "The Answerer",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [1060, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "1a2b3c4d-0008-0008-0008-000000000008",
+      "name": "OpenAI Model (Answerer)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [960, 520],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-creds",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "fromInput",
+        "sessionKey": "sessionId"
+      },
+      "id": "1a2b3c4d-0009-0009-0009-000000000009",
+      "name": "Window Buffer Memory (Answerer)",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [1120, 520]
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "The Decider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model (Decider)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "The Decider",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory (Decider)": {
+      "ai_memory": [
+        [
+          {
+            "node": "The Decider",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "The Decider": {
+      "main": [
+        [
+          {
+            "node": "Parse Decider JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Decider JSON": {
+      "main": [
+        [
+          {
+            "node": "Build Answerer Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Answerer Prompt": {
+      "main": [
+        [
+          {
+            "node": "The Answerer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model (Answerer)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "The Answerer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory (Answerer)": {
+      "ai_memory": [
+        [
+          {
+            "node": "The Answerer",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
